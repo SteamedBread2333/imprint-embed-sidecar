@@ -190,6 +190,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=os.environ.get("IMPRINT_EMBED_CACHE", DEFAULT_CACHE),
     )
     parser.add_argument("--warm", action="store_true", help="load the model before serving")
+    parser.add_argument(
+        "--parent-pid",
+        type=int,
+        default=None,
+        help=(
+            "PID of the parent process to watch; sidecar exits when the parent "
+            "disappears. Replaces an idle timer, which would misfire on a long-lived "
+            "MCP host that keeps calling embed. Falls back to IMPRINT_PARENT_PID env."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -207,6 +217,39 @@ def resolve_port(cli_port: int | None) -> int:
     return DEFAULT_PORT
 
 
+def resolve_parent_pid(cli_pid: int | None) -> int:
+    """Parent PID precedence: CLI flag > IMPRINT_PARENT_PID > 0 (disabled).
+
+    0 (or any value <= 0) means "do not watch", which is the safe default for
+    ad-hoc CLI runs.
+    """
+    if cli_pid and cli_pid > 0:
+        return cli_pid
+    env_pid = os.environ.get("IMPRINT_PARENT_PID", "").strip()
+    if env_pid.isdigit():
+        v = int(env_pid)
+        if v > 0:
+            return v
+    return 0
+
+
+def watch_parent(parent_pid: int, interval: float = 30.0) -> None:
+    """Poll parent PID; exit when the parent disappears.
+
+    Uses signal 0, which never delivers a real signal but raises ProcessLookupError
+    if the PID is gone (or PermissionError if it has changed uid). The daemon
+    thread is stopped only via process exit, so a KeyboardInterrupt in serve_forever
+    is what tears the server down — this thread only fires on parent death.
+    """
+    while True:
+        try:
+            os.kill(parent_pid, 0)
+        except (ProcessLookupError, PermissionError):
+            log.info("parent pid %d gone, exiting", parent_pid)
+            os._exit(0)
+        time.sleep(interval)
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -215,11 +258,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parse_args(argv)
     port = resolve_port(args.port)
+    parent_pid = resolve_parent_pid(args.parent_pid)
     embedder = Embedder(args.model, args.cache_dir)
     if args.warm:
         embedder.embed(["warmup"])
     server = ThreadingHTTPServer((args.host, port), make_handler(embedder))
-    log.info("listening on http://%s:%d model=%s", args.host, port, args.model)
+    if parent_pid > 0:
+        watcher = threading.Thread(
+            target=watch_parent,
+            args=(parent_pid,),
+            name="parent-watcher",
+            daemon=True,
+        )
+        watcher.start()
+        log.info(
+            "listening on http://%s:%d model=%s parent_pid=%d",
+            args.host, port, args.model, parent_pid,
+        )
+    else:
+        log.info("listening on http://%s:%d model=%s", args.host, port, args.model)
     try:
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
