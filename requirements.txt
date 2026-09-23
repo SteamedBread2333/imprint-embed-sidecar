@@ -1,0 +1,4 @@
+# Installed into the plugin venv by scripts/setup.sh (not the project).
+# Pinned majors: fastembed drives the ONNX backend, onnxruntime is the runtime.
+fastembed>=0.4.2
+onnxruntime>=1.18.0
