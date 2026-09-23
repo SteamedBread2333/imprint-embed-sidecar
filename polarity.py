@@ -19,12 +19,16 @@ from __future__ import annotations
 import re
 
 NEGATION_MARKERS = (
-    # English
+    # English ("no " / "not " keep a trailing space so "notify" / "notation"
+    # do not match)
     "never", "do not", "don't", "dont", "avoid", "without", "instead of",
     "rather than", "skip", "ignore", "forbid", "no ", "not ", "bare ",
     "must not", "should not", "refrain",
-    # Chinese
-    "不要", "别", "禁止", "避免", "不可", "不能", "而非", "而不是", "无需", "禁用",
+    # Chinese — the bare single character "别" is deliberately absent:
+    # substring matching would also fire inside 分别 / 别人 / 特别 / 性别,
+    # none of which negate. Only multi-character imperative forms are listed.
+    "不要", "禁止", "避免", "不可", "不能", "而非", "而不是", "无需", "禁用",
+    "别用", "别写", "别加", "别删", "别改", "别弄", "别碰", "别提交",
 )
 
 # Antonym token pairs: one side in each claim signals an opposite policy.

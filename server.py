@@ -8,8 +8,9 @@ Design constraints (from the handover plan):
 
 Endpoints
   GET  /health  -> {"ok":true,"model":...,"dim":...}
-  POST /embed   -> {"vectors":[[...]],"dim":384,"model":...}
-                   {"error":"..."} on failure with HTTP 500
+  POST /embed   -> {"vectors":[[...]],"dim":512,"model":...}
+                   (bge-small-zh-v1.5 emits 512-dim vectors; read dim from the
+                   response, do not hardcode) {"error":"..."} on failure
 """
 
 from __future__ import annotations

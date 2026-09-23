@@ -12,7 +12,7 @@
     "port": { "type": "number", "default": 4174 },
     "model": { "type": "string", "default": "BAAI/bge-small-zh-v1.5" },
     "timeout_seconds": { "type": "number", "default": 2 },
-    "duplicate_threshold": { "type": "number", "default": 0.85 }
+    "duplicate_threshold": { "type": "number", "default": 0.70 }
   },
   "tools": []
 }
