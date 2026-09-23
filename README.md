@@ -1,4 +1,4 @@
-# imprint-embed-plugin
+# imprint-embed-sidecar
 
 语义查重插件：给 imprint 的 `add` 加一条向量通路，拦住词面 Jaccard 抓不到的语义重复。
 
@@ -18,7 +18,7 @@ curl --noproxy '*' http://127.0.0.1:4174/health
 plugins:
   embed:
     enabled: false          # 默认关；置 true 启用
-    package: ../imprint-embed-plugin
+    package: ../imprint-embed-sidecar
     config:
       port: 4174
       model: bge-small-zh-v1.5
