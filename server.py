@@ -52,6 +52,7 @@ class Embedder:
         self.model = model
         self.cache_dir = cache_dir
         self._lock = threading.Lock()
+        self._infer_lock = threading.Lock()
         self._model: Any = None
         self._dim = 0
 
@@ -84,7 +85,11 @@ class Embedder:
         assert self._model is not None
         started = time.time()
         try:
-            vectors = [list(map(float, v)) for v in self._model.embed(texts)]
+            # fastembed/onnxruntime is not safe for concurrent embed() on one
+            # model handle. Serialize inference so multi MCP / multi-thread HTTP
+            # queues here instead of racing GPU/CPU kernels or timing out.
+            with self._infer_lock:
+                vectors = [list(map(float, v)) for v in self._model.embed(texts)]
         except Exception as exc:
             raise EmbedError(f"embedding failed: {exc}") from exc
         if len(vectors) != len(texts):

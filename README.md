@@ -40,6 +40,16 @@ plugins:
 
 约束：单次 ≤ 64 条文本、单条 ≤ 4000 字符；Go 侧超时 2s，失败静默降级。
 
+### 多 MCP / 多窗口并发
+
+HTTP 使用 `ThreadingHTTPServer`，多个 Cursor 窗口会同时连 **同一个** sidecar。ONNX 推理在进程内 **串行**（`_infer_lock`）：请求会在 sidecar 里 **排队**，不会并行抢同一份 model handle（避免不稳定或更慢的超时）。
+
+若排队导致 Go 端 2s 超时，会 **降级到 Jaccard**，写入/召回不失败。缓解方式：
+
+- 在 `imprint.yaml` 把 `plugins.embed.config.timeout_seconds` 略调高（例如 4–5s）；
+- 减少同时 `add`/`find`+query 的风暴（同一 claim 在 Go client 内有 LRU 缓存，重复文本不再打 HTTP）；
+- 后续可做 sidecar 侧 **微批次合并**（把几毫秒内的多条 texts 合成一次 `embed()`）。
+
 ## 阈值标定（最重要，改模型必重跑）
 
 ```bash
