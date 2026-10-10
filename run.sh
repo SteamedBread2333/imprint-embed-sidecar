@@ -21,4 +21,11 @@ else
   exit 1
 fi
 
-exec "$PY" "$HERE/server.py" "$@"
+# Load embed + relate before listening so the first add does not pay cold-start
+# latency or hit Go timeout_seconds. Set IMPRINT_EMBED_NO_WARM=1 to skip.
+WARM=(--warm)
+if [[ "${IMPRINT_EMBED_NO_WARM:-}" == "1" ]]; then
+  WARM=()
+fi
+
+exec "$PY" "$HERE/server.py" "${WARM[@]}" "$@"

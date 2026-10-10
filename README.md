@@ -8,7 +8,7 @@
 
 ```bash
 ./scripts/setup.sh          # 建 venv、安装 requirements（embed + relate 依赖）
-./run.sh                    # 常驻监听，端口取 IMPRINT_PLUGIN_PORT（默认 4174）
+./run.sh                    # 默认 --warm：先加载 embed+relate 再监听（IMPRINT_EMBED_NO_WARM=1 可跳过）
 # imprint.yaml 里 plugins.embed.package 指向本仓库路径（与 imprint 同级 clone）
 curl --noproxy '*' http://127.0.0.1:4174/health
 ```

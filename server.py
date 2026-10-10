@@ -118,8 +118,11 @@ class Sidecar:
                 "model": self.relater.model,
                 "labels": self.relater.labels if self._relate_loaded() else [],
             }
+        embed_ready = self.embedder.dim > 0
+        relate_ready = self.relater is None or self._relate_loaded()
         return {
             "ok": True,
+            "ready": embed_ready and relate_ready,
             "model": self.embedder.model,
             "dim": self.embedder.dim,
             "cache_dir": self.cache_dir,
