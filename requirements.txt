@@ -1,4 +1,5 @@
-# Installed into the plugin venv by scripts/setup.sh (not the project).
-# Pinned majors: fastembed drives the ONNX backend, onnxruntime is the runtime.
+# Installed into the plugin venv by scripts/setup.sh (or via pip install -e .).
 fastembed>=0.4.2
 onnxruntime>=1.18.0
+sentence-transformers>=3.0.0
+PyYAML>=6.0

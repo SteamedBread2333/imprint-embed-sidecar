@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Create the plugin virtualenv and install the embedding backend.
+# Create the plugin virtualenv and install imprint-embed-sidecar (embed + relate).
 # Ownership: venv -> ~/.imprint/plugins/embed/venv, weights -> ~/.cache/imprint/models
 set -euo pipefail
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="${IMPRINT_EMBED_VENV:-$HOME/.imprint/plugins/embed/venv}"
 CACHE="${IMPRINT_EMBED_CACHE:-$HOME/.cache/imprint/models}"
 PYTHON_BIN="${PYTHON:-python3}"
@@ -15,15 +16,12 @@ fi
 mkdir -p "$VENV" "$CACHE"
 "$PYTHON_BIN" -m venv "$VENV"
 "$VENV/bin/pip" install --upgrade pip
-"$VENV/bin/pip" install "fastembed>=0.4.2" "onnxruntime>=1.18.0"
+if [[ -f "$HERE/pyproject.toml" ]]; then
+  "$VENV/bin/pip" install "$HERE"
+else
+  "$VENV/bin/pip" install "fastembed>=0.4.2" "onnxruntime>=1.18.0" "sentence-transformers>=3.0.0" "PyYAML>=6.0"
+fi
 
 echo "setup: installed into $VENV"
-echo "setup: verifying model load (downloads weights on first run)"
-IMPRINT_EMBED_CACHE="$CACHE" "$VENV/bin/python" - <<'PY'
-from fastembed import TextEmbedding
-import os
-
-m = TextEmbedding("BAAI/bge-small-zh-v1.5", cache_dir=os.environ["IMPRINT_EMBED_CACHE"])
-vec = next(iter(m.embed(["测试"])))
-print(f"setup: dim={len(vec)}")
-PY
+echo "setup: plugin dir (for imprint.yaml package:):"
+IMPRINT_EMBED_CACHE="$CACHE" "$VENV/bin/imprint-embed-sidecar" --print-plugin-dir
