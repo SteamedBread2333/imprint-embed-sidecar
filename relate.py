@@ -69,7 +69,10 @@ class Relater:
         started = time.time()
         try:
             with self._infer_lock:
-                raw = self._model.predict([(a, b) for a, b in pairs])
+                raw = self._model.predict(
+                    [(a, b) for a, b in pairs],
+                    apply_softmax=True,
+                )
         except Exception as exc:
             raise RelateError(f"relate inference failed: {exc}") from exc
 

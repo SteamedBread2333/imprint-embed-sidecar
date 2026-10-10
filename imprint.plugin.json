@@ -12,10 +12,10 @@
     "port": { "type": "number", "default": 4174 },
     "model": { "type": "string", "default": "BAAI/bge-small-zh-v1.5" },
     "timeout_seconds": { "type": "number", "default": 2 },
-    "duplicate_threshold": { "type": "number", "default": 0.70 },
-    "relate_model": { "type": "string", "default": "cross-encoder/nli-deberta-v3-small" },
-    "relate_contradiction_min": { "type": "number", "default": 0.50 },
-    "relate_entailment_min": { "type": "number", "default": 0.50 }
+    "duplicate_threshold": { "type": "number", "default": 0.65 },
+    "relate_model": { "type": "string", "default": "cross-encoder/nli-deberta-v3-base" },
+    "relate_contradiction_min": { "type": "number", "default": 0.40 },
+    "relate_entailment_min": { "type": "number", "default": 0.35 }
   },
   "tools": []
 }

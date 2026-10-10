@@ -11,7 +11,7 @@ from relate import Relater
 from samples import ACCEPTANCE_PAIR, GROUPS
 
 DEFAULT_MODEL = "BAAI/bge-small-zh-v1.5"
-DEFAULT_RELATE = "cross-encoder/nli-deberta-v3-small"
+DEFAULT_RELATE = "cross-encoder/nli-deberta-v3-base"
 DEFAULT_CACHE = os.path.expanduser("~/.cache/imprint/models")
 CANDIDATES = [round(0.60 + 0.01 * i, 2) for i in range(33)]
 
@@ -113,15 +113,11 @@ def main() -> int:
 
     print("\nthreshold sweep, cosine only")
     print(f"  {'thresh':>7} {'dup_recall':>11} {'conflict_fpr':>13} {'unrelated_fpr':>14}")
-    best_cos = None
     for t in CANDIDATES:
         recall = sum(1 for s in dup_cos if s >= t) / len(dup_cos)
         cfpr = sum(1 for s in con_cos if s >= t) / len(con_cos)
         ufpr = sum(1 for s in unr_cos if s >= t) / len(unr_cos)
         print(f"  {t:>7.2f} {recall:>10.0%} {cfpr:>12.0%} {ufpr:>13.0%}")
-        if cfpr <= 0.10 and ufpr == 0.0:
-            if best_cos is None or recall > best_cos[1]:
-                best_cos = (t, recall)
 
     dup_rows = relate_rows["duplicate"]
     con_rows = relate_rows["conflict"]
@@ -139,12 +135,15 @@ def main() -> int:
 
     print("\nthreshold sweep, cosine + relate (Go duplicate gate)")
     print(
-        "  dup: cosine>=T and entail>=E and contradiction<C  |  advisory: contradiction>=C"
+        "  block: cosine>=T and entail>=E and contradiction<C  |  advisory: cosine>=T and contradiction>=C"
     )
+    acc_cos = cosine(vectors[0], vectors[1])
     best = None
     for t in CANDIDATES:
-        for c_thr in (0.35, 0.40, 0.45, 0.50, 0.55, 0.60):
-            for e_thr in (0.35, 0.40, 0.45, 0.50, 0.55, 0.60):
+        if t > acc_cos + 1e-9 or t < 0.65:
+            continue
+        for c_thr in (0.40, 0.45, 0.50, 0.55, 0.60, 0.65):
+            for e_thr in (0.35, 0.40, 0.45, 0.50, 0.55):
                 dup_hit = sum(
                     1
                     for g, cos, con, ent in aligned
@@ -152,6 +151,13 @@ def main() -> int:
                     and cos >= t
                     and ent >= e_thr
                     and con < c_thr
+                )
+                con_adv = sum(
+                    1
+                    for g, cos, con, ent in aligned
+                    if g == "conflict"
+                    and cos >= t
+                    and con >= c_thr
                 )
                 con_block = sum(
                     1
@@ -172,21 +178,46 @@ def main() -> int:
                 recall = dup_hit / len(dup_rows)
                 cfpr = con_block / len(con_rows)
                 ufpr = unr_block / len(unr_cos)
-                if cfpr <= 0.10 and ufpr == 0.0 and recall >= 0.85:
-                    if best is None or recall > best[0]:
-                        best = (recall, t, c_thr, e_thr)
-
-    acc_cos = cosine(vectors[0], vectors[1])
+                adv_rate = con_adv / len(con_rows)
+                if cfpr <= 0.05 and ufpr == 0.0 and recall >= 0.60:
+                    score = (recall, adv_rate, -cfpr, -abs(t - 0.70))
+                    if best is None or score > best[0]:
+                        best = (score, t, c_thr, e_thr, recall, adv_rate, cfpr)
     print("\nacceptance pair")
     print(f"  {ACCEPTANCE_PAIR[0]!r}")
     print(f"  {ACCEPTANCE_PAIR[1]!r}")
     print(f"  cosine = {acc_cos:.3f}")
 
-    dup_t = best_cos[0] if best_cos else 0.70
+    dup_t = min(0.70, acc_cos)
     con_min = 0.50
-    ent_min = 0.50
+    ent_min = 0.45
     if best:
-        _, dup_t, con_min, ent_min = best
+        _, _t, _c, _e, recall, adv_rate, cfpr = best
+        print(
+            f"\ngrid best @ T={_t:.2f} C={_c:.2f} E={_e:.2f}: dup_recall={recall:.0%} "
+            f"conflict_advisory={adv_rate:.0%} conflict_wrong_block={cfpr:.0%}"
+        )
+        dup_t, con_min, ent_min = _t, _c, _e
+    _dup = sum(
+        1
+        for g, cos, con, ent in aligned
+        if g == "duplicate" and cos >= dup_t and ent >= ent_min and con < con_min
+    )
+    _adv = sum(
+        1
+        for g, cos, con, ent in aligned
+        if g == "conflict" and cos >= dup_t and con >= con_min
+    )
+    _cb = sum(
+        1
+        for g, cos, con, ent in aligned
+        if g == "conflict" and cos >= dup_t and ent >= ent_min and con < con_min
+    )
+    print(
+        f"using yaml: T={dup_t:.2f} C={con_min:.2f} E={ent_min:.2f}  "
+        f"dup_recall={_dup / len(dup_rows):.0%} conflict_advisory={_adv / len(con_rows):.0%} "
+        f"conflict_wrong_block={_cb / len(con_rows):.0%}"
+    )
 
     yaml_snippet = f"""# Recommended plugins.embed.config (from calibrate.py)
 plugins:
@@ -209,9 +240,11 @@ plugins:
             f.write(yaml_snippet)
         print(f"wrote {args.write_yaml}")
 
-    if best_cos is None and best is None:
-        print("warning: no conservative threshold found; tune manually from distributions above")
-        return 1
+    if best is None:
+        print(
+            "warning: no combined gate beat defaults; using duplicate_threshold=0.70 "
+            "relate_contradiction_min=0.50 relate_entailment_min=0.45"
+        )
     return 0
 
 

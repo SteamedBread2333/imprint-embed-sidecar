@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from config import relate_model_id
+from prefetch import prefetch_relate
 from relate import RelateError, Relater
 
 DEFAULT_MODEL = "BAAI/bge-small-zh-v1.5"
@@ -290,6 +291,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="override relate model id (else imprint.yaml / IMPRINT_RELATE_MODEL)",
     )
     parser.add_argument("--warm", action="store_true", help="load models before serving")
+    parser.add_argument(
+        "--prepare",
+        action="store_true",
+        help="download/load embed + relate models, print progress, exit (no HTTP server)",
+    )
     return parser.parse_args(argv)
 
 
@@ -337,10 +343,24 @@ def main(argv: list[str] | None = None) -> int:
     port = resolve_port(args.port)
     relate_model = args.relate_model or relate_model_id()
     sidecar = Sidecar(args.model, args.cache_dir, relate_model)
-    if args.warm:
+    if args.prepare or args.warm:
+        if relate_model:
+            try:
+                prefetch_relate(relate_model, args.cache_dir)
+            except Exception as exc:
+                log.warning("prefetch relate failed (will retry on load): %s", exc)
+        log.info("prepare: loading embed model %s", args.model)
         sidecar.embedder.embed(["warmup"])
+        log.info("prepare: embed ready dim=%s", sidecar.embedder.dim)
         if sidecar.relater is not None:
+            log.info("prepare: loading relate model %s", relate_model)
             sidecar.relater.score_pairs([("warm", "warm")])
+            log.info("prepare: relate ready labels=%s", sidecar.relater.labels)
+        elif relate_model:
+            log.warning("prepare: relate_model=%s but relater disabled", relate_model)
+        if args.prepare:
+            log.info("prepare: done (cache_dir=%s)", args.cache_dir)
+            return 0
     server = ThreadingHTTPServer((args.host, port), make_handler(sidecar))
     pid_file = write_pid_file(os.environ.get("IMPRINT_PLUGIN_STATE", ""))
     log.info(

@@ -8,7 +8,9 @@
 
 ```bash
 ./scripts/setup.sh          # 建 venv、安装 requirements（embed + relate 依赖）
+./run.sh prepare            # 前台下载/加载权重（HF 进度在终端），不起 HTTP
 ./run.sh                    # 默认 --warm：先加载 embed+relate 再监听（IMPRINT_EMBED_NO_WARM=1 可跳过）
+# 或在 imprint 项目里：imprint embed prepare && imprint plugin start embed
 # imprint.yaml 里 plugins.embed.package 指向本仓库路径（与 imprint 同级 clone）
 curl --noproxy '*' http://127.0.0.1:4174/health
 ```
@@ -25,9 +27,9 @@ plugins:
       model: bge-small-zh-v1.5
       timeout_seconds: 2
       duplicate_threshold: 0.70
-      relate_model: cross-encoder/nli-deberta-v3-small
+      relate_model: cross-encoder/nli-deberta-v3-base
       relate_contradiction_min: 0.50   # imprint.yaml；由 calibrate.py 推荐
-      relate_entailment_min: 0.50
+      relate_entailment_min: 0.45
       timeout_seconds: 4
 ```
 

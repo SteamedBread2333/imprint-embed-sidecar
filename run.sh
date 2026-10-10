@@ -28,4 +28,9 @@ if [[ "${IMPRINT_EMBED_NO_WARM:-}" == "1" ]]; then
   WARM=()
 fi
 
+if [[ "${1:-}" == "prepare" ]]; then
+  shift
+  exec "$PY" "$HERE/server.py" --prepare "$@"
+fi
+
 exec "$PY" "$HERE/server.py" "${WARM[@]}" "$@"
