@@ -15,6 +15,7 @@ DEFAULT_URL = "http://127.0.0.1:4174"
 DEFAULT_T = 0.65
 DEFAULT_C = 0.40
 DEFAULT_E = 0.35
+DEFAULT_HIGH_COS = 0.0
 
 
 def post_json(url: str, path: str, body: dict, timeout: float) -> dict:
@@ -29,12 +30,29 @@ def post_json(url: str, path: str, body: dict, timeout: float) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def classify_relate(sc: dict[str, float], c_min: float, e_min: float) -> str:
-    con = max((v for k, v in sc.items() if k.lower() == "contradiction"), default=0.0)
-    ent = max((v for k, v in sc.items() if k.lower() == "entailment"), default=0.0)
+def pick_label(sc: dict[str, float], name: str) -> float:
+    for k, v in sc.items():
+        if k.lower() == name.lower():
+            return float(v)
+    return 0.0
+
+
+def merge_bidir(ab: dict[str, float], ba: dict[str, float]) -> dict[str, float]:
+    return {
+        "contradiction": max(pick_label(ab, "contradiction"), pick_label(ba, "contradiction")),
+        "entailment": max(pick_label(ab, "entailment"), pick_label(ba, "entailment")),
+        "neutral": min(pick_label(ab, "neutral"), pick_label(ba, "neutral")),
+    }
+
+
+def classify_gate(cos: float, sc: dict[str, float], c_min: float, e_min: float, high_cos: float) -> str:
+    con = pick_label(sc, "contradiction")
+    ent = pick_label(sc, "entailment")
     if con >= c_min:
         return "advisory"
     if ent >= e_min:
+        return "block"
+    if high_cos > 0 and cos >= high_cos:
         return "block"
     return "pass"
 
@@ -46,6 +64,8 @@ def main() -> int:
     parser.add_argument("--threshold", type=float, default=float(os.environ.get("IMPRINT_DUP_T", DEFAULT_T)))
     parser.add_argument("--contradiction-min", type=float, default=DEFAULT_C)
     parser.add_argument("--entailment-min", type=float, default=DEFAULT_E)
+    parser.add_argument("--high-cos-block", type=float, default=DEFAULT_HIGH_COS)
+    parser.add_argument("--bidirectional", action="store_true")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -54,39 +74,51 @@ def main() -> int:
         for a, b in rows:
             pairs.append((group, a, b))
 
-    texts = [t for g, a, b in pairs for t in (a, b)]
-    try:
-        emb = post_json(args.url, "/embed", {"texts": texts}, args.timeout)
-    except (urllib.error.URLError, TimeoutError) as exc:
-        print(f"eval_gate: embed failed: {exc}", file=sys.stderr)
-        return 1
-
-    vectors = emb["vectors"]
-    idx = 0
     cos_rows: list[tuple[str, str, str, float]] = []
-    for g, a, b in pairs:
-        va, vb = vectors[idx], vectors[idx + 1]
-        idx += 2
-        dot = sum(x * y for x, y in zip(va, vb))
-        na = sum(x * x for x in va) ** 0.5
-        nb = sum(y * y for y in vb) ** 0.5
-        cos = 0.0 if na == 0 or nb == 0 else dot / (na * nb)
-        cos_rows.append((g, a, b, cos))
+    chunk_pairs = 32  # sidecar MAX_TEXTS_PER_REQUEST=64 → 32 pairs
+    for off in range(0, len(pairs), chunk_pairs):
+        chunk = pairs[off : off + chunk_pairs]
+        texts = [t for _g, a, b in chunk for t in (a, b)]
+        try:
+            emb = post_json(args.url, "/embed", {"texts": texts}, args.timeout)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            print(f"eval_gate: embed failed: {exc}", file=sys.stderr)
+            return 1
+        vectors = emb["vectors"]
+        idx = 0
+        for g, a, b in chunk:
+            va, vb = vectors[idx], vectors[idx + 1]
+            idx += 2
+            dot = sum(x * y for x, y in zip(va, vb))
+            na = sum(x * x for x in va) ** 0.5
+            nb = sum(y * y for y in vb) ** 0.5
+            cos = 0.0 if na == 0 or nb == 0 else dot / (na * nb)
+            cos_rows.append((g, a, b, cos))
 
-    batch_pairs = [[a, b] for _g, a, b, _ in cos_rows]
-    try:
-        rel = post_json(args.url, "/relate", {"pairs": batch_pairs}, args.timeout)
-    except (urllib.error.URLError, TimeoutError) as exc:
-        print(f"eval_gate: relate failed: {exc}", file=sys.stderr)
-        return 1
-
-    results = rel["results"]
+    results: list[dict[str, float]] = []
+    for off in range(0, len(cos_rows), chunk_pairs):
+        chunk = cos_rows[off : off + chunk_pairs]
+        batch_pairs = [[a, b] for _g, a, b, _ in chunk]
+        try:
+            rel = post_json(args.url, "/relate", {"pairs": batch_pairs}, args.timeout)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            print(f"eval_gate: relate failed: {exc}", file=sys.stderr)
+            return 1
+        batch = rel["results"]
+        if args.bidirectional:
+            rev_pairs = [[b, a] for _g, a, b, _ in chunk]
+            rel_rev = post_json(args.url, "/relate", {"pairs": rev_pairs}, args.timeout)
+            batch = [
+                merge_bidir(batch[i], rel_rev["results"][i]) for i in range(len(batch))
+            ]
+        results.extend(batch)
     stats: dict[str, dict[str, int]] = {g: {"block": 0, "advisory": 0, "pass": 0, "below_cos": 0} for g in GROUPS}
     failures: list[str] = []
 
     print(
         f"sidecar {args.url}  T={args.threshold:.2f}  C={args.contradiction_min:.2f}  "
-        f"E={args.entailment_min:.2f}\n"
+        f"E={args.entailment_min:.2f}  high_cos={args.high_cos_block:.2f}  "
+        f"bidir={args.bidirectional}\n"
     )
     print(f"{'group':<11} {'cos':>6} {'outcome':<10} claim_a … claim_b")
     print("-" * 100)
@@ -96,7 +128,9 @@ def main() -> int:
             outcome = "below_cos"
             stats[g]["below_cos"] += 1
         else:
-            outcome = classify_relate(sc, args.contradiction_min, args.entailment_min)
+            outcome = classify_gate(
+                cos, sc, args.contradiction_min, args.entailment_min, args.high_cos_block
+            )
             stats[g][outcome] += 1
 
         if g == "duplicate" and outcome != "block":
