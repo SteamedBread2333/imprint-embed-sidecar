@@ -1,4 +1,4 @@
-# Installed into the plugin venv by scripts/setup.sh (or via pip install -e .).
+# Installed into the plugin venv by scripts/setup.sh.
 fastembed>=0.4.2
 onnxruntime>=1.18.0
 sentence-transformers>=3.0.0

@@ -7,9 +7,9 @@
 ## 快速开始
 
 ```bash
-./scripts/setup.sh          # 建 venv、pip install 本包（embed + relate 依赖）
+./scripts/setup.sh          # 建 venv、安装 requirements（embed + relate 依赖）
 ./run.sh                    # 常驻监听，端口取 IMPRINT_PLUGIN_PORT（默认 4174）
-imprint-embed-sidecar --print-plugin-dir   # 填 imprint.yaml 的 plugins.embed.package
+# imprint.yaml 里 plugins.embed.package 指向本仓库路径（与 imprint 同级 clone）
 curl --noproxy '*' http://127.0.0.1:4174/health
 ```
 
@@ -109,5 +109,5 @@ add "Never use tabs …"（库里有 "Use tabs …"）         → 放行（advi
 | `run.sh` | 启动入口 |
 | `calibrate.py` | 余弦 + relate 分布，输出推荐 yaml 片段 |
 | `samples.py` | 标定样本 |
-| `scripts/setup.sh` | venv + `pip install` |
-| `pyproject.toml` | 包与 `imprint-embed-sidecar` CLI |
+| `scripts/setup.sh` | venv + `requirements.txt` |
+| `requirements.txt` | Python 依赖 |

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create the plugin virtualenv and install imprint-embed-sidecar (embed + relate).
+# Create the plugin virtualenv and install Python deps (embed + relate).
 # Ownership: venv -> ~/.imprint/plugins/embed/venv, weights -> ~/.cache/imprint/models
 set -euo pipefail
 
@@ -16,12 +16,8 @@ fi
 mkdir -p "$VENV" "$CACHE"
 "$PYTHON_BIN" -m venv "$VENV"
 "$VENV/bin/pip" install --upgrade pip
-if [[ -f "$HERE/pyproject.toml" ]]; then
-  "$VENV/bin/pip" install "$HERE"
-else
-  "$VENV/bin/pip" install "fastembed>=0.4.2" "onnxruntime>=1.18.0" "sentence-transformers>=3.0.0" "PyYAML>=6.0"
-fi
+"$VENV/bin/pip" install -r "$HERE/requirements.txt"
 
 echo "setup: installed into $VENV"
-echo "setup: plugin dir (for imprint.yaml package:):"
-IMPRINT_EMBED_CACHE="$CACHE" "$VENV/bin/imprint-embed-sidecar" --print-plugin-dir
+echo "setup: set imprint.yaml plugins.embed.package to this repo path, e.g.:"
+echo "setup:   package: $HERE"

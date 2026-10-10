@@ -287,16 +287,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="override relate model id (else imprint.yaml / IMPRINT_RELATE_MODEL)",
     )
     parser.add_argument("--warm", action="store_true", help="load models before serving")
-    parser.add_argument(
-        "--print-plugin-dir",
-        action="store_true",
-        help="print directory containing imprint.plugin.json and exit",
-    )
     return parser.parse_args(argv)
-
-
-def plugin_dir() -> str:
-    return os.path.dirname(os.path.abspath(__file__))
 
 
 def resolve_port(cli_port: int | None) -> int:
@@ -340,10 +331,6 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stdout,
     )
     args = parse_args(argv)
-    if args.print_plugin_dir:
-        print(plugin_dir())
-        return 0
-
     port = resolve_port(args.port)
     relate_model = args.relate_model or relate_model_id()
     sidecar = Sidecar(args.model, args.cache_dir, relate_model)
