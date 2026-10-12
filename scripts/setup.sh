@@ -19,5 +19,7 @@ mkdir -p "$VENV" "$CACHE"
 "$VENV/bin/pip" install -r "$HERE/requirements.txt"
 
 echo "setup: installed into $VENV"
+echo "setup: next: ./run.sh prepare   (or: cd ../imprint && imprint embed prepare)"
 echo "setup: set imprint.yaml plugins.embed.package to this repo path, e.g.:"
 echo "setup:   package: $HERE"
+echo "setup: start sidecar from imprint repo root: imprint plugin start embed"

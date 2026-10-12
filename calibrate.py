@@ -188,9 +188,9 @@ def main() -> int:
     print(f"  {ACCEPTANCE_PAIR[1]!r}")
     print(f"  cosine = {acc_cos:.3f}")
 
-    dup_t = min(0.70, acc_cos)
-    con_min = 0.50
-    ent_min = 0.45
+    dup_t = min(0.65, acc_cos)
+    con_min = 0.40
+    ent_min = 0.35
     if best:
         _, _t, _c, _e, recall, adv_rate, cfpr = best
         print(
@@ -228,7 +228,9 @@ plugins:
       duplicate_threshold: {dup_t:.2f}
       relate_contradiction_min: {con_min:.2f}
       relate_entailment_min: {ent_min:.2f}
-      timeout_seconds: 4
+      relate_bidirectional: true
+      duplicate_high_cosine_block: 0.80   # tune with eval_gate.py; 0 = off
+      timeout_seconds: 5
 """
 
     print("\nrecommended imprint.yaml snippet:")
@@ -240,11 +242,12 @@ plugins:
             f.write(yaml_snippet)
         print(f"wrote {args.write_yaml}")
 
+    print(
+        "\nnext: imprint-embed-sidecar/eval_gate.py --bidirectional "
+        "--high-cos-block 0.80  (full gate on 60 pairs)"
+    )
     if best is None:
-        print(
-            "warning: no combined gate beat defaults; using duplicate_threshold=0.70 "
-            "relate_contradiction_min=0.50 relate_entailment_min=0.45"
-        )
+        print("warning: no T/C/E grid beat recall>=60% with low conflict FPR; review tables above")
     return 0
 
 

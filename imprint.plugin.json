@@ -15,7 +15,9 @@
     "duplicate_threshold": { "type": "number", "default": 0.65 },
     "relate_model": { "type": "string", "default": "cross-encoder/nli-deberta-v3-base" },
     "relate_contradiction_min": { "type": "number", "default": 0.40 },
-    "relate_entailment_min": { "type": "number", "default": 0.35 }
+    "relate_entailment_min": { "type": "number", "default": 0.35 },
+    "relate_bidirectional": { "type": "boolean", "default": true },
+    "duplicate_high_cosine_block": { "type": "number", "default": 0.80 }
   },
   "tools": []
 }

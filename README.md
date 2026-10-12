@@ -1,115 +1,116 @@
 # imprint-embed-sidecar
 
-语义查重插件：给 imprint 的 `add` 加一条向量通路，拦住词面 Jaccard 抓不到的语义重复。
+语义查重插件：给 imprint 的 `add` 加向量 + NLI 分数，拦住词面 Jaccard 抓不到的语义重复，并把对立政策放进 `similar` advisory。
 
-形态是 Python 常驻 sidecar + Go 侧薄客户端，复用 imprint 已有的插件机制（`imprint.plugin.json`、端口分配、`up/down` 生命周期）。**默认关闭，缺失即降级**，插件挂掉时 `add` 照常工作。
+Python 常驻 sidecar + Go 薄客户端；**sidecar 只出分，duplicate/advisory 决策在 imprint（Go + `imprint.yaml`）**。
 
 ## 快速开始
 
+在 **imprint 项目根**（有 `imprint.yaml` 的仓库）操作，不要只在 sidecar 目录里 `plugin start`：
+
 ```bash
-./scripts/setup.sh          # 建 venv、安装 requirements（embed + relate 依赖）
-./run.sh prepare            # 前台下载/加载权重（HF 进度在终端），不起 HTTP
-./run.sh                    # 默认 --warm：先加载 embed+relate 再监听（IMPRINT_EMBED_NO_WARM=1 可跳过）
-# 或在 imprint 项目里：imprint embed prepare && imprint plugin start embed
-# imprint.yaml 里 plugins.embed.package 指向本仓库路径（与 imprint 同级 clone）
-curl --noproxy '*' http://127.0.0.1:4174/health
+# 1) 本仓库
+./scripts/setup.sh
+./run.sh prepare          # 前台下载/加载（HF 进度在终端）；或 imprint embed prepare
+
+# 2) imprint 仓库 imprint.yaml → plugins.embed.package: ../imprint-embed-sidecar
+cd ../imprint
+imprint embed prepare     # 可选，与 ./run.sh prepare 等价
+imprint plugin start embed
+
+curl --noproxy '*' http://127.0.0.1:4174/health   # 需 "ready": true
 ```
 
-在项目的 `imprint.yaml` 启用：
+`run.sh` 默认 `--warm`；跳过 warm：`IMPRINT_EMBED_NO_WARM=1 ./run.sh`。
+
+国内网络：Go 启动 sidecar 时会设 `HF_HUB_DISABLE_XET=1`，并在 huggingface.co 不可达时使用 `HF_ENDPOINT=https://hf-mirror.com`。手动下载可 `export IMPRINT_HF_ENDPOINT=https://hf-mirror.com`。
+
+## imprint.yaml 示例
 
 ```yaml
 plugins:
   embed:
-    enabled: false          # 默认关；置 true 启用
+    enabled: true
     package: ../imprint-embed-sidecar
     config:
       port: 4174
-      model: bge-small-zh-v1.5
-      timeout_seconds: 2
-      duplicate_threshold: 0.70
+      model: BAAI/bge-small-zh-v1.5
       relate_model: cross-encoder/nli-deberta-v3-base
-      relate_contradiction_min: 0.50   # imprint.yaml；由 calibrate.py 推荐
-      relate_entailment_min: 0.45
-      timeout_seconds: 4
+      duplicate_threshold: 0.65
+      relate_contradiction_min: 0.40
+      relate_entailment_min: 0.35
+      relate_bidirectional: true
+      duplicate_high_cosine_block: 0.80   # 0 = 关闭；NLI neutral 时高 cos 仍拒写
+      timeout_seconds: 5
 ```
 
-归属划分（已确认，别挪）：向量数据跟项目（`.imprint/vault.db` 侧表 `rule_vectors`）· 模型权重 `~/.cache/imprint/models/` · venv `~/.imprint/plugins/embed/venv`。
+归属：向量在 vault `rule_vectors` · 权重 `~/.cache/imprint/models/` · venv `~/.imprint/plugins/embed/venv`。
 
-## 接口
+## HTTP 接口
 
 ```jsonc
 // GET /health
-{ "ok": true, "model": "...", "dim": 512, "embed": {...}, "relate": {"enabled": true, "model": "..."} }
+{ "ok": true, "ready": true, "embed": {...}, "relate": {"enabled": true, "model": "..."} }
 
-// POST /embed   {"texts": ["..."]}
+// POST /embed   {"texts": ["..."]}   // ≤64 条，≤4000 字符/条
 { "vectors": [[...]], "dim": 512, "model": "..." }
 
-// POST /relate   {"pairs": [["claim a", "claim b"], ...]}
-{ "model": "...", "labels": ["contradiction","neutral","entailment"], "results": [{...}] }
+// POST /relate   {"pairs": [["claim a", "claim b"], ...]}   // ≤64 对
+{ "model": "...", "labels": ["contradiction","entailment","neutral"], "results": [{...}] }
 ```
 
-Sidecar **只返回分数**；duplicate / advisory 阈值在 **imprint.yaml**（Go 读）。单次 ≤ 64 条/对，单条 ≤ 4000 字符；失败时 Go 降级到 Jaccard。
+Go 判定顺序（阈值见 yaml）：**contradiction → entailment → high cosine block**；`relate_bidirectional` 时在 Go 侧打两次 `/relate` 并合并 max 分数。
 
-### 多 MCP / 多窗口并发
+## 标定与回归
 
-HTTP 使用 `ThreadingHTTPServer`，多个 Cursor 窗口会同时连 **同一个** sidecar。ONNX 推理在进程内 **串行**（`_infer_lock`）：请求会在 sidecar 里 **排队**，不会并行抢同一份 model handle（避免不稳定或更慢的超时）。
-
-若排队导致 Go 端 2s 超时，会 **降级到 Jaccard**，写入/召回不失败。缓解方式：
-
-- 在 `imprint.yaml` 把 `plugins.embed.config.timeout_seconds` 略调高（例如 4–5s）；
-- 减少同时 `add`/`find`+query 的风暴（同一 claim 在 Go client 内有 LRU 缓存，重复文本不再打 HTTP）；
-- 后续可做 sidecar 侧 **微批次合并**（把几毫秒内的多条 texts 合成一次 `embed()`）。
-
-## 阈值标定（最重要，改模型必重跑）
+| 脚本 | 作用 |
+| --- | --- |
+| `calibrate.py` | 60 对样本上扫 **T / C / E** 网格，打印推荐 yaml 片段 |
+| `eval_gate.py` | 对 **live sidecar** 复现 Go 语义闸（含 `--bidirectional`、`--high-cos-block`） |
+| imprint `scripts/embed-eval-batch.py` | 临时 vault 上真实 `add` 回归（在 imprint 仓库） |
 
 ```bash
-./run.sh --warm &          # 或让 calibrate.py 自己加载模型
+# 需已加载模型（或 sidecar ready）
 python3 calibrate.py
+
+python3 eval_gate.py --bidirectional --high-cos-block 0.80
+# 样本集上常见：duplicate 100%，conflict 误拦 0%
 ```
 
-`calibrate.py` 用三组各 20 对样本（真重复 / 反义冲突 / 无关）跑余弦分布，输出阈值扫描矩阵并给出推荐值。
+换 **embed 或 relate 模型** 后：先 `calibrate.py`，再 `eval_gate.py` 扫 `duplicate_high_cosine_block`，最后在 imprint 仓库跑 batch。
 
-### 实测结果（bge-small-zh-v1.5，2026-09-23）
+### 为何需要 relate + 高余弦兜底
 
-| 组 | min | p25 | median | p75 | max | mean |
-| --- | --- | --- | --- | --- | --- | --- |
-| 真重复 | 0.652 | 0.778 | 0.823 | 0.893 | 0.932 | 0.819 |
-| 反义冲突 | 0.492 | 0.690 | 0.753 | 0.786 | **1.000** | 0.749 |
-| 无关 | 0.432 | 0.484 | 0.528 | 0.549 | 0.644 | 0.520 |
+余弦衡量话题相近，**分不清同义改述与反义冲突**（冲突组 cos 中位数 ~0.75，验收对 cos ~0.71）。因此：
 
-**关键结论：余弦分不清「语义重复」与「反义冲突」。** 反义组最高 1.000（"Prefer tabs over spaces" ↔ "Prefer spaces over tabs" 词序互换即满分）——余弦测的是话题相关度，而反义恰恰话题最相关。这与早先字面 Jaccard 的失败（真重复 0.383 < 反义 0.700）同源。
-
-因此单靠余弦做硬拒不成立。imprint（Go）采用 **余弦 + `/relate` NLI 分数**（sidecar 本地 cross-encoder，无词典硬编码）：
-
-| 组合 | 行为 |
+| 信号 | Go 行为 |
 | --- | --- |
-| 高余弦 + 高 entail + 低 contradiction | **硬拒** duplicate |
-| 高余弦 + 高 contradiction | **放行**，`similar[]` advisory |
-| relate 不可用 | 仅余弦/Jaccard（可能误拒反义对，与 embed 降级相同） |
+| 高 cos + 高 entail + 低 contradiction | **duplicate 拒写** |
+| 高 cos + 高 contradiction | **写入** + `similar` advisory |
+| 高 cos + NLI neutral（如 `%w` 改述） | **`duplicate_high_cosine_block`** 拒写（默认 0.80） |
 
-**阈值取 0.70**：这是能拦住验收对的最高值。验收对
-`Go exported identifiers must use PascalCase` ↔ `Exported things use Pascal Case naming`
-余弦 **0.711**（Jaccard 仅 0.38，词面完全抓不到）。再高就漏拦，再低则冲突误杀上升。
+维度以 `/health`、`/embed` 返回的 `dim` 为准（bge-small-zh-v1.5 为 **512**）。
 
-> 维度实测为 **512**，不是早期笔记里的 384 —— 永远以 `/health` 与 `/embed` 返回的 `dim` 为准。
-
-## 验收
+## 验收（imprint CLI）
 
 ```
-add "Go exported identifiers must use PascalCase"    → 成功
-add "Exported things use Pascal Case naming"         → 被拒，candidates 指向上一条
-add "Never use tabs …"（库里有 "Use tabs …"）         → 放行（advisory，余弦 0.927）
-插件进程 kill 后 add                                   → 成功（降级）
+add "Go exported identifiers must use PascalCase"     → 成功
+add "Exported things use Pascal Case naming"          → duplicate
+add "Wrap errors with fmt.Errorf and %w" 再 add 同义改述 → duplicate（高 cos 兜底）
+tabs vs spaces 对立对                                  → 两次写入，第二次带 similar
+sidecar 未 ready                                      → 降级 Jaccard，add 仍可用
 ```
 
 ## 文件
 
 | 文件 | 作用 |
 | --- | --- |
-| `server.py` | HTTP（`/health`、`/embed`、`/relate`） |
-| `relate.py` | 本地 cross-encoder 打分 |
-| `run.sh` | 启动入口 |
-| `calibrate.py` | 余弦 + relate 分布，输出推荐 yaml 片段 |
+| `server.py` | HTTP：`/health`、`/embed`、`/relate`；`--prepare` / `--warm` |
+| `relate.py` | CrossEncoder NLI（softmax 概率） |
+| `prefetch.py` | 下载 relate 权重（跳过 ONNX；mirror-safe） |
+| `run.sh` | 启动；`prepare` 子命令 |
+| `calibrate.py` | T/C/E 网格 + yaml 推荐 |
+| `eval_gate.py` | 60 对 HTTP 闸回归 |
 | `samples.py` | 标定样本 |
 | `scripts/setup.sh` | venv + `requirements.txt` |
-| `requirements.txt` | Python 依赖 |
+| `imprint.plugin.json` | 插件 manifest + configSchema 默认值 |
