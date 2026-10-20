@@ -20,6 +20,6 @@ mkdir -p "$VENV" "$CACHE"
 
 echo "setup: installed into $VENV"
 echo "setup: next: ./run.sh prepare   (or: cd ../imprint && imprint embed prepare)"
-echo "setup: set imprint.yaml plugins.embed.package to this repo path, e.g.:"
+echo "setup: set ~/.imprint/embed.yaml package to this repo path (absolute), e.g.:"
 echo "setup:   package: $HERE"
 echo "setup: start sidecar from imprint repo root: imprint plugin start embed"
