@@ -7,11 +7,11 @@ import os
 import statistics
 import sys
 
+from config import schema_default
 from relate import Relater
 from samples import ACCEPTANCE_PAIR, GROUPS
 
 DEFAULT_MODEL = "BAAI/bge-small-zh-v1.5"
-DEFAULT_RELATE = "cross-encoder/nli-deberta-v3-base"
 DEFAULT_CACHE = os.path.expanduser("~/.cache/imprint/models")
 CANDIDATES = [round(0.60 + 0.01 * i, 2) for i in range(33)]
 
@@ -58,7 +58,7 @@ def main() -> int:
     parser.add_argument("--model", default=os.environ.get("IMPRINT_EMBED_MODEL", DEFAULT_MODEL))
     parser.add_argument(
         "--relate-model",
-        default=os.environ.get("IMPRINT_RELATE_MODEL", DEFAULT_RELATE),
+        default=os.environ.get("IMPRINT_RELATE_MODEL") or schema_default("relate_model"),
     )
     parser.add_argument("--cache-dir", default=os.environ.get("IMPRINT_EMBED_CACHE", DEFAULT_CACHE))
     parser.add_argument(
