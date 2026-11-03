@@ -7,11 +7,10 @@ import os
 import statistics
 import sys
 
-from config import schema_default
+from config import embed_model_id, schema_default
 from relate import Relater
 from samples import ACCEPTANCE_PAIR, GROUPS
 
-DEFAULT_MODEL = "BAAI/bge-small-zh-v1.5"
 DEFAULT_CACHE = os.path.expanduser("~/.cache/imprint/models")
 CANDIDATES = [round(0.60 + 0.01 * i, 2) for i in range(33)]
 
@@ -55,7 +54,11 @@ def pick_label(scores: dict[str, float], *names: str) -> float:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", default=os.environ.get("IMPRINT_EMBED_MODEL", DEFAULT_MODEL))
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="override embed model id (else IMPRINT_EMBED_MODEL / plugin schema)",
+    )
     parser.add_argument(
         "--relate-model",
         default=os.environ.get("IMPRINT_RELATE_MODEL") or schema_default("relate_model"),
@@ -64,9 +67,10 @@ def main() -> int:
     parser.add_argument(
         "--write-yaml",
         default="",
-        help="optional path to write recommended imprint.yaml snippet",
+        help="optional path to write a recommended ~/.imprint/embed.yaml snippet",
     )
     args = parser.parse_args()
+    args.model = (args.model or "").strip() or embed_model_id()
 
     print(f"embed model: {args.model}")
     print(f"relate model: {args.relate_model}\n")
@@ -219,21 +223,17 @@ def main() -> int:
         f"conflict_wrong_block={_cb / len(con_rows):.0%}"
     )
 
-    yaml_snippet = f"""# Recommended plugins.embed.config (from calibrate.py)
-plugins:
-  embed:
-    config:
-      model: {args.model}
-      relate_model: {args.relate_model}
-      duplicate_threshold: {dup_t:.2f}
-      relate_contradiction_min: {con_min:.2f}
-      relate_entailment_min: {ent_min:.2f}
-      relate_bidirectional: true
-      duplicate_high_cosine_block: 0.80   # tune with eval_gate.py; 0 = off
-      timeout_seconds: 5
+    yaml_snippet = f"""# Recommended ~/.imprint/embed.yaml config (from calibrate.py)
+config:
+  duplicate_threshold: {dup_t:.2f}
+  relate_contradiction_min: {con_min:.2f}
+  relate_entailment_min: {ent_min:.2f}
+  relate_bidirectional: true
+  duplicate_high_cosine_block: 0.80   # tune with eval_gate.py; 0 = off
+  timeout_seconds: 5
 """
 
-    print("\nrecommended imprint.yaml snippet:")
+    print("\nrecommended ~/.imprint/embed.yaml snippet:")
     print(yaml_snippet)
 
     if args.write_yaml:

@@ -33,15 +33,16 @@ enabled: true
 package: /path/to/imprint-embed-sidecar
 config:
   port: 4174
-  model: BAAI/bge-small-zh-v1.5
-  relate_model: cross-encoder/nli-deberta-v3-base
   duplicate_threshold: 0.65
   relate_contradiction_min: 0.40
   relate_entailment_min: 0.35
   relate_bidirectional: true
   duplicate_high_cosine_block: 0.80   # 0 = 关闭；NLI neutral 时高 cos 仍拒写
   timeout_seconds: 5
+  # relate_model: off   # 省略则用 imprint.plugin.json 的 schema 默认；off 关闭 /relate
 ```
+
+embed 与 relate 的模型 id 只写在本仓库 `imprint.plugin.json` 的 `configSchema`。进程内覆盖用 `IMPRINT_EMBED_MODEL` 或 `server.py --model`。`GET /health` 与 `POST /embed` 响应里的 `model` 是当前加载的 id。`embed.yaml` 的 `model` 键不参与选择。
 
 归属：向量在 vault `rule_vectors` · 权重 `~/.cache/imprint/models/` · venv `~/.imprint/plugins/embed/venv` · sidecar 日志 `~/.imprint/state/plugins/embed/sidecar.log`。
 

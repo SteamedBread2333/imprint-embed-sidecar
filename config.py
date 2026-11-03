@@ -1,7 +1,8 @@
-"""Read sidecar model ids from the environment and plugin config.
+"""Read sidecar model ids from this package and the process environment.
 
-The relate model default lives in this package's imprint.plugin.json.
-imprint passes IMPRINT_PLUGIN_CONFIG and does not choose the model id.
+Embed and relate defaults live in imprint.plugin.json. imprint does not
+choose those ids. embed.yaml may set relate_model to off; it does not
+select the embed model.
 """
 
 from __future__ import annotations
@@ -71,6 +72,21 @@ def _model_from_config_value(value: Any) -> str | None:
     if text.lower() in _RELATE_OFF:
         return None
     return text
+
+
+def embed_model_id() -> str:
+    """Embedding model id for this process.
+
+    IMPRINT_EMBED_MODEL wins when set. Otherwise the configSchema default.
+    A model key in embed.yaml is ignored.
+    """
+    env = os.environ.get("IMPRINT_EMBED_MODEL", "").strip()
+    if env:
+        return env
+    default = schema_default("model")
+    if not default:
+        raise RuntimeError("imprint.plugin.json configSchema.model.default is empty")
+    return default
 
 
 def relate_model_id() -> str | None:

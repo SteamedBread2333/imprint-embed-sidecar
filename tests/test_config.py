@@ -1,4 +1,4 @@
-"""relate_model resolution stays inside the sidecar plugin."""
+"""Model id resolution stays inside the sidecar plugin."""
 
 from __future__ import annotations
 
@@ -15,9 +15,11 @@ class RelateModelTest(unittest.TestCase):
     def setUp(self) -> None:
         self._env = {
             "IMPRINT_RELATE_MODEL": os.environ.get("IMPRINT_RELATE_MODEL"),
+            "IMPRINT_EMBED_MODEL": os.environ.get("IMPRINT_EMBED_MODEL"),
             "IMPRINT_PLUGIN_CONFIG": os.environ.get("IMPRINT_PLUGIN_CONFIG"),
         }
         os.environ.pop("IMPRINT_RELATE_MODEL", None)
+        os.environ.pop("IMPRINT_EMBED_MODEL", None)
         os.environ.pop("IMPRINT_PLUGIN_CONFIG", None)
 
     def tearDown(self) -> None:
@@ -33,6 +35,11 @@ class RelateModelTest(unittest.TestCase):
             config.schema_default("relate_model"),
             raw["configSchema"]["relate_model"]["default"],
         )
+        self.assertEqual(
+            config.schema_default("model"),
+            raw["configSchema"]["model"]["default"],
+        )
+        self.assertEqual(config.embed_model_id(), raw["configSchema"]["model"]["default"])
 
     def test_missing_key_uses_schema(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
@@ -57,6 +64,16 @@ class RelateModelTest(unittest.TestCase):
         self.addCleanup(os.unlink, path)
         os.environ["IMPRINT_PLUGIN_CONFIG"] = path
         self.assertEqual(config.relate_model_id(), "org/nested")
+
+    def test_embed_model_ignores_yaml_and_honors_env(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+            f.write("config:\n  model: org/from-yaml\n")
+            path = f.name
+        self.addCleanup(os.unlink, path)
+        os.environ["IMPRINT_PLUGIN_CONFIG"] = path
+        self.assertEqual(config.embed_model_id(), config.schema_default("model"))
+        os.environ["IMPRINT_EMBED_MODEL"] = "org/from-env"
+        self.assertEqual(config.embed_model_id(), "org/from-env")
 
     def test_off_disables(self) -> None:
         os.environ["IMPRINT_RELATE_MODEL"] = "off"

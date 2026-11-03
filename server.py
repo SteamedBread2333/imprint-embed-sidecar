@@ -19,11 +19,10 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from config import relate_model_id
+from config import embed_model_id, relate_model_id
 from prefetch import prefetch_relate
 from relate import RelateError, Relater
 
-DEFAULT_MODEL = "BAAI/bge-small-zh-v1.5"
 DEFAULT_PORT = 4174
 DEFAULT_CACHE = os.path.expanduser("~/.cache/imprint/models")
 DEFAULT_HOST = "127.0.0.1"
@@ -238,7 +237,7 @@ def make_handler(sidecar: Sidecar) -> type[BaseHTTPRequestHandler]:
             if sidecar.relater is None:
                 self._send(
                     503,
-                    {"error": "relate disabled: set relate_model in imprint.yaml or IMPRINT_RELATE_MODEL"},
+                    {"error": "relate disabled"},
                 )
                 return
             try:
@@ -280,7 +279,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="imprint embed sidecar")
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--host", default=os.environ.get("IMPRINT_EMBED_HOST", DEFAULT_HOST))
-    parser.add_argument("--model", default=os.environ.get("IMPRINT_EMBED_MODEL", DEFAULT_MODEL))
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="override embed model id (else IMPRINT_EMBED_MODEL / plugin schema)",
+    )
     parser.add_argument(
         "--cache-dir",
         default=os.environ.get("IMPRINT_EMBED_CACHE", DEFAULT_CACHE),
@@ -288,7 +291,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--relate-model",
         default=None,
-        help="override relate model id (else imprint.yaml / IMPRINT_RELATE_MODEL)",
+        help="override relate model id (else IMPRINT_RELATE_MODEL / plugin schema)",
     )
     parser.add_argument("--warm", action="store_true", help="load models before serving")
     parser.add_argument(
@@ -341,15 +344,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parse_args(argv)
     port = resolve_port(args.port)
+    embed_model = (args.model or "").strip() or embed_model_id()
     relate_model = args.relate_model or relate_model_id()
-    sidecar = Sidecar(args.model, args.cache_dir, relate_model)
+    sidecar = Sidecar(embed_model, args.cache_dir, relate_model)
     if args.prepare or args.warm:
         if relate_model:
             try:
                 prefetch_relate(relate_model, args.cache_dir)
             except Exception as exc:
                 log.warning("prefetch relate failed (will retry on load): %s", exc)
-        log.info("prepare: loading embed model %s", args.model)
+        log.info("prepare: loading embed model %s", embed_model)
         sidecar.embedder.embed(["warmup"])
         log.info("prepare: embed ready dim=%s", sidecar.embedder.dim)
         if sidecar.relater is not None:
@@ -367,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
         "listening on http://%s:%d embed=%s relate=%s pid=%d",
         args.host,
         port,
-        args.model,
+        embed_model,
         relate_model or "disabled",
         os.getpid(),
     )
